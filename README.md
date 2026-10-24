@@ -15,9 +15,9 @@ auth, faceted search).
 
 ## Screenshots
 
-![Faceted product search response](docs/screenshots/faceted-search.png)
+![Real API session: health check, login and a faceted product search](docs/screenshots/faceted-search.png)
 
-_These images are illustrative mockups rendered from this repository's documented screens and API shapes, not captures of a running build. Regenerate or replace them with real captures once the app is running._
+_A real capture: the built API running against a MongoDB 7 container, driven by `.github/scripts/capture-api-session.sh` from the manual `Screenshots` workflow (`.github/workflows/screenshots.yml`) with the seeded demo tenant. The search response is cut off after the first two products. `categoryType` and `sortBy` are sent as enum numbers (0 = Electronics, 1 = PriceAsc) because the API has no string enum converter._
 
 ## Quick start
 
