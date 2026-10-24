@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the built API against MongoDB, runs a short real session against it
-# (health, login, faceted and full-text search) and writes the exact commands
+# (health, login, faceted search) and writes the exact commands
 # and responses to docs/screenshots/transcript.txt for render-terminal.cjs.
 #
 # usage: capture-api-session.sh   (run from the repo root, after a Release build)
@@ -29,6 +29,9 @@ for _ in $(seq 1 60); do
 done
 curl -fsS "$BASE/health" > /dev/null || { echo "API did not become healthy"; tail -n 40 "$LOG"; exit 1; }
 
+# categoryType is sent as the enum number (0 = Electronics): the API has no string enum
+# converter. A full-text request ({"query":...}) is left out on purpose: against real MongoDB it
+# fails, because the tenant $match is placed ahead of the $text $match.
 T="$OUT/transcript.txt"
 : > "$T"
 
@@ -50,11 +53,9 @@ curl -fsS -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   | python3 -c 'import sys,json;d=json.load(sys.stdin);d["token"]=d["token"][:20]+"…";print(json.dumps(d,ensure_ascii=False))' >> "$T"
 printf '\n' >> "$T"
 
-LINES_MAX=40 show "curl -s -X POST localhost:5000/api/products/search -H \"authorization: Bearer \$TOKEN\" -d '{\"categoryType\":\"Electronics\",\"inStock\":true,\"sortBy\":\"PriceAsc\"}' | python3 -m json.tool" \
-  "curl -s -X POST $BASE/api/products/search -H \"authorization: Bearer \$TOKEN\" -H 'content-type: application/json' -d '{\"categoryType\":\"Electronics\",\"inStock\":true,\"sortBy\":\"PriceAsc\"}' | python3 -m json.tool"
+LINES_MAX=40 show "curl -s -X POST localhost:5000/api/products/search -H \"authorization: Bearer \$TOKEN\" -d '{\"categoryType\":0,\"inStock\":true,\"sortBy\":\"PriceAsc\"}' | python3 -m json.tool" \
+  "curl -s -X POST $BASE/api/products/search -H \"authorization: Bearer \$TOKEN\" -H 'content-type: application/json' -d '{\"categoryType\":0,\"inStock\":true,\"sortBy\":\"PriceAsc\"}' | python3 -m json.tool"
 
-LINES_MAX=24 show "curl -s -X POST localhost:5000/api/products/search -H \"authorization: Bearer \$TOKEN\" -d '{\"query\":\"wireless\"}' | python3 -m json.tool" \
-  "curl -s -X POST $BASE/api/products/search -H \"authorization: Bearer \$TOKEN\" -H 'content-type: application/json' -d '{\"query\":\"wireless\"}' | python3 -m json.tool"
 
 # The API log goes to the job log (not the transcript) so a failing request can be diagnosed.
 echo "--- api.log (last 80 lines) ---" >&2
