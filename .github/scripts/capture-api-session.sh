@@ -37,7 +37,12 @@ T="$OUT/transcript.txt"
 
 show() { # show <command text to display> <command to run>
   printf '$ %s\n' "$1" >> "$T"
-  eval "$2" 2>&1 | head -n "${LINES_MAX:-14}" | cut -c1-200 >> "$T"
+  local out max="${LINES_MAX:-14}"
+  out=$(eval "$2" 2>&1) || true
+  printf '%s\n' "$out" | head -n "$max" | cut -c1-200 >> "$T"
+  if [ "$(printf '%s\n' "$out" | wc -l)" -gt "$max" ]; then
+    printf '    ... (output truncated)\n' >> "$T"
+  fi
   printf '\n' >> "$T"
 }
 
