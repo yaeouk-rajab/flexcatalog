@@ -10,9 +10,16 @@ OUT=docs/screenshots
 BASE=http://localhost:5000
 mkdir -p "$OUT"
 
-ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS="$BASE" \
-  Mongo__ConnectionString="mongodb://localhost:27017" \
-  dotnet src/FlexCatalog.Api/bin/Release/net10.0/FlexCatalog.Api.dll > "$OUT/api.log" 2>&1 &
+# Run from the project folder: the content root is the working directory, and
+# appsettings.Development.json (which holds the dev-only Jwt:Secret) is only
+# found from there. From the repo root the API stops with "Jwt:Secret is not configured".
+LOG="$PWD/$OUT/api.log"
+(
+  cd src/FlexCatalog.Api
+  ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS="$BASE" \
+    Mongo__ConnectionString="mongodb://localhost:27017" \
+    exec dotnet bin/Release/net10.0/FlexCatalog.Api.dll > "$LOG" 2>&1
+) &
 API_PID=$!
 trap 'kill $API_PID 2>/dev/null || true' EXIT
 
@@ -20,7 +27,7 @@ for _ in $(seq 1 60); do
   if curl -fsS "$BASE/health" > /dev/null 2>&1; then break; fi
   sleep 1
 done
-curl -fsS "$BASE/health" > /dev/null || { echo "API did not become healthy"; tail -n 40 "$OUT/api.log"; exit 1; }
+curl -fsS "$BASE/health" > /dev/null || { echo "API did not become healthy"; tail -n 40 "$LOG"; exit 1; }
 
 T="$OUT/transcript.txt"
 : > "$T"
