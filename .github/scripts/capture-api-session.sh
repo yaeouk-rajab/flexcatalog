@@ -56,4 +56,8 @@ LINES_MAX=40 show "curl -s -X POST localhost:5000/api/products/search -H \"autho
 LINES_MAX=24 show "curl -s -X POST localhost:5000/api/products/search -H \"authorization: Bearer \$TOKEN\" -d '{\"query\":\"wireless\"}' | python3 -m json.tool" \
   "curl -s -X POST $BASE/api/products/search -H \"authorization: Bearer \$TOKEN\" -H 'content-type: application/json' -d '{\"query\":\"wireless\"}' | python3 -m json.tool"
 
+# The API log goes to the job log (not the transcript) so a failing request can be diagnosed.
+echo "--- api.log (last 80 lines) ---" >&2
+tail -n 80 "$LOG" >&2 || true
+
 cat "$T"
