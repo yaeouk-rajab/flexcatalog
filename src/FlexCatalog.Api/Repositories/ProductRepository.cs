@@ -20,8 +20,10 @@ public interface IProductRepository
 
     /// <summary>
     /// Runs a caller-built $facet-style aggregation pipeline (expected to
-    /// yield exactly one output document) with a tenant $match stage
-    /// forcibly prepended. This is the ONLY way search/facet queries reach
+    /// yield exactly one output document) with the tenant scope forcibly
+    /// applied: a leading tenant $match stage, or, for a pipeline that starts
+    /// with a $text match, the tenant condition inside that same $match (MongoDB
+    /// requires $text in the first stage). This is the ONLY way search/facet queries reach
     /// the collection, so a caller cannot construct a pipeline that skips
     /// tenant scoping even by accident.
     /// </summary>
@@ -72,15 +74,43 @@ public sealed class ProductRepository(MongoContext context, ITenantContext tenan
 
     public async Task<BsonDocument?> AggregateTenantScopedAsync(IEnumerable<BsonDocument> pipelineStages, CancellationToken ct = default)
     {
-        var tenantMatch = new BsonDocument("$match",
-            new BsonDocument("tenantId", tenantContext.TenantId));
-
-        var stages = new List<BsonDocument> { tenantMatch };
-        stages.AddRange(pipelineStages);
-
-        PipelineDefinition<Product, BsonDocument> pipeline = stages.ToArray();
+        PipelineDefinition<Product, BsonDocument> pipeline =
+            BuildTenantScopedPipeline(tenantContext.TenantId, pipelineStages).ToArray();
         using var cursor = await Collection.AggregateAsync(pipeline, cancellationToken: ct);
         var results = await cursor.ToListAsync(ct);
         return results.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Puts the tenant scope in front of a caller-built pipeline. Normally that is a
+    /// separate leading $match on tenantId. MongoDB only allows a $match containing
+    /// $text as the FIRST stage of a pipeline, so when the caller's first stage is a
+    /// $text match the tenant condition is folded into that same $match instead of
+    /// being placed ahead of it: a separate leading stage made every full-text search
+    /// fail with "$match with $text is only allowed as the first pipeline stage".
+    /// The tenant condition is always applied, and a tenantId the caller put in that
+    /// stage is dropped so it can never override the one from the tenant context.
+    /// </summary>
+    internal static List<BsonDocument> BuildTenantScopedPipeline(string tenantId, IEnumerable<BsonDocument> pipelineStages)
+    {
+        var stages = pipelineStages.ToList();
+
+        if (stages.Count > 0
+            && stages[0].TryGetValue("$match", out var firstMatch)
+            && firstMatch is BsonDocument textMatch
+            && textMatch.Contains("$text"))
+        {
+            var scoped = new BsonDocument("tenantId", tenantId);
+            foreach (var element in textMatch.Elements.Where(e => e.Name != "tenantId"))
+            {
+                scoped.Add(element);
+            }
+
+            stages[0] = new BsonDocument("$match", scoped);
+            return stages;
+        }
+
+        stages.Insert(0, new BsonDocument("$match", new BsonDocument("tenantId", tenantId)));
+        return stages;
     }
 }

@@ -205,6 +205,14 @@ public sealed class ProductSearchService(IProductRepository repository) : IProdu
             new BsonDocument("$limit", pageSize),
         };
 
+        if (usesTextSearch)
+        {
+            // textScore only exists to sort by relevance. Left in the output it is an extra
+            // element that Deserialize<Product> rejects, so every text search with results
+            // failed with HTTP 500.
+            resultsPipeline.Add(new BsonDocument("$project", new BsonDocument("textScore", 0)));
+        }
+
         var facetStage = new BsonDocument
         {
             ["results"] = resultsPipeline,
