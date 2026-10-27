@@ -1,0 +1,96 @@
+name: Screenshots
+
+# Real output from the running API against a real MongoDB: health, login,
+# faceted and full-text search, rendered as a terminal-style PNG. Run it by
+# hand from the Actions tab. The PNG is uploaded as an artifact; tick "commit"
+# to also push it to docs/screenshots on the branch you ran it from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit the images to docs/screenshots on this branch
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: "10.0.x"
+
+jobs:
+  capture:
+    name: capture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Only the commit step needs to write; it is skipped unless asked for.
+    permissions:
+      contents: write
+
+    services:
+      mongo:
+        image: mirror.gcr.io/library/mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build
+        run: dotnet build src/FlexCatalog.Api/FlexCatalog.Api.csproj --configuration Release
+
+      # The API seeds two demo tenants and their products on first start
+      # outside Production (Infrastructure/DataSeeder.cs).
+      - name: Run a session against the API
+        run: .github/scripts/capture-api-session.sh
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Render the transcript to an image
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" playwright
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node .github/scripts/render-terminal.cjs \
+            docs/screenshots/transcript.txt docs/screenshots/faceted-search.png "FlexCatalog: login and search"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            docs/screenshots/faceted-search.png
+            docs/screenshots/transcript.txt
+            docs/screenshots/api.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Commit the image
+        if: ${{ inputs.commit }}
+        run: |
+          rm -f docs/screenshots/transcript.txt docs/screenshots/api.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "No image changes to commit."
+          else
+            git commit -m "Update screenshots from CI"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
