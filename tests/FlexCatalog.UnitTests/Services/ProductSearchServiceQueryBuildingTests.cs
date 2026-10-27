@@ -145,6 +145,27 @@ public class ProductSearchServiceQueryBuildingTests
         Assert.Equal(20, limitStage["$limit"].ToInt32());
     }
 
+    [Fact]
+    public void BuildFacetStage_WithTextSearch_RemovesTextScoreFromTheResults()
+    {
+        var request = new ProductSearchRequest(Query: "wireless", SortBy: ProductSortOrder.Relevance);
+
+        var facet = ProductSearchService.BuildFacetStage(request, page: 1, pageSize: 20, usesTextSearch: true);
+
+        // textScore is only there to sort by; Deserialize<Product> rejects it as an unknown element.
+        var results = facet["$facet"]["results"].AsBsonArray.Select(s => s.AsBsonDocument).ToList();
+        Assert.True(results.FindIndex(s => s.Contains("$limit")) < results.FindIndex(s => s.Contains("$project")));
+        Assert.Equal(0, results.Single(s => s.Contains("$project"))["$project"]["textScore"].ToInt32());
+    }
+
+    [Fact]
+    public void BuildFacetStage_WithoutTextSearch_HasNoProjectStage()
+    {
+        var facet = ProductSearchService.BuildFacetStage(new ProductSearchRequest(), page: 1, pageSize: 20, usesTextSearch: false);
+
+        Assert.DoesNotContain(facet["$facet"]["results"].AsBsonArray, s => s.AsBsonDocument.Contains("$project"));
+    }
+
     [Theory]
     [InlineData(ProductSortOrder.PriceAsc, "price", 1)]
     [InlineData(ProductSortOrder.PriceDesc, "price", -1)]

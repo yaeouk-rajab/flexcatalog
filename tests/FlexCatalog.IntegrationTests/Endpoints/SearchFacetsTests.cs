@@ -114,4 +114,37 @@ public class SearchFacetsTests(MongoContainerFixture mongoFixture) : Integration
         Assert.Contains(result.Facets.Categories, c => c.Value == "Apparel");
         Assert.Contains(result.Facets.Categories, c => c.Value == "Books");
     }
+
+    [Fact]
+    public async Task Search_ByFreeText_ReturnsMatchingProductsForTheTenant()
+    {
+        // Regression: a $text query used to fail with "$match with $text is only allowed as
+        // the first pipeline stage" because a tenant $match was placed ahead of it.
+        var token = await LoginAsync("admin@acme.test");
+        using var client = AuthenticatedClient(token);
+
+        var response = await client.PostAsJsonAsync("/api/products/search", new ProductSearchRequest(Query: "wireless"));
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<ProductSearchResponse>();
+
+        Assert.NotEmpty(result!.Items);
+        Assert.Contains(result.Items, p => p.Name.Contains("Wireless", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Search_ByFreeText_DoesNotReturnAnotherTenantsProducts()
+    {
+        // "Wireless" only exists in Acme's seeded catalog; UrbanThread must get nothing back.
+        var token = await LoginAsync("admin@urbanthread.test");
+        using var client = AuthenticatedClient(token);
+
+        var response = await client.PostAsJsonAsync("/api/products/search", new ProductSearchRequest(Query: "wireless"));
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<ProductSearchResponse>();
+
+        Assert.Empty(result!.Items);
+        Assert.Equal(0, result.TotalCount);
+    }
 }
